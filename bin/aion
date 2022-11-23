@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const log = console.log.bind(null, '[aion]');
+
+const args = process.argv.slice(2);
+
+if (args.length < 2) {
+  log('Usage: <file> <duration> [timescale=1000]');
+
+  return;
+}
+
+let [file, duration, timescale] = args;
+
+file = path.normalize(file);
+
+const errors = [];
+
+if (!fs.existsSync(file)) {
+  errors.push("The file doesn't exist.");
+}
+
+duration = Number(duration);
+
+if (Number.isNaN(duration)) {
+  errors.push('Duration must be a number.');
+}
+
+timescale = timescale ? Number(timescale) : 1000;
+
+if (Number.isNaN(timescale)) {
+  errors.push('Timescale must be a number.');
+}
+
+if (errors.length > 0) {
+  errors.forEach((error) => {
+    log(error);
+  });
+
+  return;
+}
+
+const SUPPORTED_FORMATS = fs.readdirSync('scripts');
+const format = path.extname(file).slice(1).toLowerCase();
+
+if (!SUPPORTED_FORMATS.includes(`${format}.js`)) {
+  log('That file format is not supported (yet).');
+
+  return;
+}
+
+const modify = require(`../scripts/${format}`);
+const validate = require(`../packages/${format}/validate`);
+
+const then = performance.now();
+const fd = fs.openSync(file, 'r+');
+
+const read = (size, offset) => {
+  const buffer = new Uint8Array(size);
+
+  fs.readvSync(fd, [buffer], offset);
+
+  return buffer;
+};
+
+if (!validate(read)) {
+  log('The file has an invalid structure for its format.');
+
+  return;
+}
+
+const [buffer, offset] = modify(read, duration >>> 0, timescale >>> 0);
+
+fs.writevSync(fd, [buffer], offset);
+
+const now = performance.now();
+
+log('Values written.', `(Took ~${(now - then).toFixed(3)}ms)`);
